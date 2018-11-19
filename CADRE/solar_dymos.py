@@ -12,6 +12,16 @@ from openmdao.core.explicitcomponent import ExplicitComponent
 from CADRE.kinematics import fixangles
 from MBI import MBI
 
+try:
+    from postprocessing.MultiView.MultiView import MultiView
+    multiview_installed = True
+except:
+    multiview_installed = False
+from smt.surrogate_models import RMTB, RMTC, KRG
+
+
+USE_SMT = True
+
 
 class SolarExposedAreaComp(ExplicitComponent):
     """
@@ -44,6 +54,7 @@ class SolarExposedAreaComp(ExplicitComponent):
 
         nc = self.nc = 7
         self.np = 12
+        ncp = self.nc * self.np
 
         self.na = 10
         self.nz = 73
@@ -84,9 +95,69 @@ class SolarExposedAreaComp(ExplicitComponent):
                                                                    self.ne))
                 counter += 1
 
-        self.MBI = MBI(data, [angle, azimuth, elevation],
-                             [4, 10, 8],
-                             [4, 4, 4])
+        # self.MBI = MBI(data, [angle, azimuth, elevation],
+        #                      [4, 10, 8],
+        #                      [4, 4, 4])
+
+        angles, azimuths, elevations = np.meshgrid(angle, azimuth, elevation, indexing='ij')
+
+        xt = np.array([angles.flatten(), azimuths.flatten(), elevations.flatten()]).T
+        yt = np.zeros((flat_size, ncp))
+        counter = 0
+        for p in range(self.np):
+            for c in range(nc):
+                yt[:, counter] = data[:, :, :, counter].flatten()
+                counter += 1
+
+        xlimits = np.array([
+            [angle[0], angle[-1]],
+            [azimuth[0], azimuth[-1]],
+            [elevation[0], elevation[-1]],
+            ])
+
+        this_dir = os.path.split(__file__)[0]
+
+        # Create the _smt_cache directory if it doesn't exist
+        if not os.path.exists(os.path.join(this_dir, '_smt_cache')):
+            os.makedirs(os.path.join(this_dir, '_smt_cache'))
+
+        self.interp = interp = RMTB(
+            xlimits=xlimits,
+            num_ctrl_pts=8,
+            order=4,
+            approx_order=4,
+            nonlinear_maxiter=2,
+            solver_tolerance=1.e-20,
+            energy_weight=1.e-4,
+            regularization_weight=1.e-14,
+            # smoothness=np.array([1., 1., 1.]),
+            extrapolate=False,
+            print_global=True,
+            data_dir=os.path.join(this_dir, '_smt_cache'),
+        )
+
+        interp.set_training_values(xt, yt)
+        interp.train()
+
+        if multiview_installed:
+            info = {'nx':3,
+                'ny':ncp,
+                'user_func':interp.predict_values,
+                'resolution':100,
+                'plot_size':8,
+                'dimension_names':[
+                    'Angle',
+                    'Azimuth',
+                    'Elevation'],
+                'bounds':xlimits.tolist(),
+                'X_dimension':0,
+                'Y_dimension':1,
+                'scatter_points':[xt, yt],
+                'dist_range': 0.0,
+                }
+
+            # Initialize display parameters and draw GUI
+            MultiView(info)
 
         self.x = np.zeros((nn, 3))
 
@@ -107,7 +178,6 @@ class SolarExposedAreaComp(ExplicitComponent):
 
         self.declare_partials('exposed_area', 'fin_angle')
 
-        ncp = self.nc * self.np
         rows = np.tile(np.arange(ncp), nn) + np.repeat(ncp*np.arange(nn), ncp)
         cols = np.tile(np.repeat(0, ncp), nn) + np.repeat(np.arange(nn), ncp)
 
@@ -121,7 +191,10 @@ class SolarExposedAreaComp(ExplicitComponent):
         nn = self.options['num_nodes']
 
         self.setx(inputs)
-        P = self.MBI.evaluate(self.x)
+        if USE_SMT:
+            P = self.interp.predict_values(self.x)
+        else:
+            P = self.MBI.evaluate(self.x)
         outputs['exposed_area'] = P.reshape(nn, self.nc, self.np, order='F')
 
     def setx(self, inputs):
@@ -141,11 +214,15 @@ class SolarExposedAreaComp(ExplicitComponent):
         """
         nn = self.options['num_nodes']
 
-        Jfin = self.MBI.evaluate(self.x, 1).reshape(nn, self.nc, self.np, order='F')
-        Jaz = self.MBI.evaluate(self.x, 2).reshape(nn, self.nc, self.np, order='F')
-        Jel = self.MBI.evaluate(self.x, 3).reshape(nn, self.nc, self.np, order='F')
+        if USE_SMT:
+            Jfin = self.interp.predict_derivatives(self.x, 0).reshape(nn, self.nc, self.np, order='F')
+            Jaz = self.interp.predict_derivatives(self.x, 1).reshape(nn, self.nc, self.np, order='F')
+            Jel = self.interp.predict_derivatives(self.x, 2).reshape(nn, self.nc, self.np, order='F')
+        else:
+            Jfin = self.MBI.evaluate(self.x, 1).reshape(nn, self.nc, self.np, order='F')
+            Jaz = self.MBI.evaluate(self.x, 2).reshape(nn, self.nc, self.np, order='F')
+            Jel = self.MBI.evaluate(self.x, 3).reshape(nn, self.nc, self.np, order='F')
 
         partials['exposed_area', 'fin_angle'] = Jfin.flatten()
         partials['exposed_area', 'azimuth'] = Jaz.flatten()
         partials['exposed_area', 'elevation'] = Jel.flatten()
-
