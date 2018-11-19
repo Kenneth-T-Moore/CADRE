@@ -92,8 +92,8 @@ class TestPower(unittest.TestCase):
 
         prob['LOS'] = setd['LOS'][:5]
         prob['temperature'] = setd['temperature'][:, :5].T
-        prob['power_cell_voltage.Isetpt'] = setd['Isetpt'][:, :5].T
-        prob['power_solar_power.Isetpt'] = setd['Isetpt'][:, :5].T
+        prob['cell_voltage_comp.Isetpt'] = setd['Isetpt'][:, :5].T
+        prob['solar_power_comp.Isetpt'] = setd['Isetpt'][:, :5].T
         prob['exposed_area'] = np.transpose(setd['exposedArea'][:, :, :5], [2, 0, 1])
 
         prob.run_model()
