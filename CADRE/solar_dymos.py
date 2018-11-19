@@ -10,17 +10,24 @@ import numpy as np
 from openmdao.core.explicitcomponent import ExplicitComponent
 
 from CADRE.kinematics import fixangles
+
 from MBI import MBI
 
 try:
-    from postprocessing.MultiView.MultiView import MultiView
+    from CADRE.MultiView import MultiView
     multiview_installed = True
 except:
     multiview_installed = False
+
 from smt.surrogate_models import RMTB, RMTC, KRG
 
-
+# Set to True to use Surrogate Model Toolbox instead of MBI
 USE_SMT = True
+
+#Set to True for interactive plotting of surrogate results.
+USE_MV = False
+
+multiview_installed = USE_MV & multiview_installed
 
 
 class SolarExposedAreaComp(ExplicitComponent):
@@ -95,69 +102,72 @@ class SolarExposedAreaComp(ExplicitComponent):
                                                                    self.ne))
                 counter += 1
 
-        # self.MBI = MBI(data, [angle, azimuth, elevation],
-        #                      [4, 10, 8],
-        #                      [4, 4, 4])
+        if USE_SMT:
 
-        angles, azimuths, elevations = np.meshgrid(angle, azimuth, elevation, indexing='ij')
+            angles, azimuths, elevations = np.meshgrid(angle, azimuth, elevation, indexing='ij')
 
-        xt = np.array([angles.flatten(), azimuths.flatten(), elevations.flatten()]).T
-        yt = np.zeros((flat_size, ncp))
-        counter = 0
-        for p in range(self.np):
-            for c in range(nc):
-                yt[:, counter] = data[:, :, :, counter].flatten()
-                counter += 1
+            xt = np.array([angles.flatten(), azimuths.flatten(), elevations.flatten()]).T
+            yt = np.zeros((flat_size, ncp))
+            counter = 0
+            for p in range(self.np):
+                for c in range(nc):
+                    yt[:, counter] = data[:, :, :, counter].flatten()
+                    counter += 1
 
-        xlimits = np.array([
-            [angle[0], angle[-1]],
-            [azimuth[0], azimuth[-1]],
-            [elevation[0], elevation[-1]],
-            ])
+            xlimits = np.array([
+                [angle[0], angle[-1]],
+                [azimuth[0], azimuth[-1]],
+                [elevation[0], elevation[-1]],
+                ])
 
-        this_dir = os.path.split(__file__)[0]
+            this_dir = os.path.split(__file__)[0]
 
-        # Create the _smt_cache directory if it doesn't exist
-        if not os.path.exists(os.path.join(this_dir, '_smt_cache')):
-            os.makedirs(os.path.join(this_dir, '_smt_cache'))
+            # Create the _smt_cache directory if it doesn't exist
+            if not os.path.exists(os.path.join(this_dir, '_smt_cache')):
+                os.makedirs(os.path.join(this_dir, '_smt_cache'))
 
-        self.interp = interp = RMTB(
-            xlimits=xlimits,
-            num_ctrl_pts=8,
-            order=4,
-            approx_order=4,
-            nonlinear_maxiter=2,
-            solver_tolerance=1.e-20,
-            energy_weight=1.e-4,
-            regularization_weight=1.e-14,
-            # smoothness=np.array([1., 1., 1.]),
-            extrapolate=False,
-            print_global=True,
-            data_dir=os.path.join(this_dir, '_smt_cache'),
-        )
+            self.interp = interp = RMTB(
+                xlimits=xlimits,
+                num_ctrl_pts=8,
+                order=4,
+                approx_order=4,
+                nonlinear_maxiter=2,
+                solver_tolerance=1.e-20,
+                energy_weight=1.e-4,
+                regularization_weight=1.e-14,
+                # smoothness=np.array([1., 1., 1.]),
+                extrapolate=False,
+                print_global=True,
+                data_dir=os.path.join(this_dir, '_smt_cache'),
+            )
 
-        interp.set_training_values(xt, yt)
-        interp.train()
+            interp.set_training_values(xt, yt)
+            interp.train()
 
-        if multiview_installed:
-            info = {'nx':3,
-                'ny':ncp,
-                'user_func':interp.predict_values,
-                'resolution':100,
-                'plot_size':8,
-                'dimension_names':[
-                    'Angle',
-                    'Azimuth',
-                    'Elevation'],
-                'bounds':xlimits.tolist(),
-                'X_dimension':0,
-                'Y_dimension':1,
-                'scatter_points':[xt, yt],
-                'dist_range': 0.0,
-                }
+            if multiview_installed:
+                info = {'nx':3,
+                    'ny':ncp,
+                    'user_func':interp.predict_values,
+                    'resolution':100,
+                    'plot_size':8,
+                    'dimension_names':[
+                        'Angle',
+                        'Azimuth',
+                        'Elevation'],
+                    'bounds':xlimits.tolist(),
+                    'X_dimension':0,
+                    'Y_dimension':1,
+                    'scatter_points':[xt, yt],
+                    'dist_range': 0.0,
+                    }
 
-            # Initialize display parameters and draw GUI
-            MultiView(info)
+                # Initialize display parameters and draw GUI
+                MultiView(info)
+
+        else:
+            self.MBI = MBI(data, [angle, azimuth, elevation],
+                                 [4, 10, 8],
+                                 [4, 4, 4])
 
         self.x = np.zeros((nn, 3))
 
@@ -195,6 +205,7 @@ class SolarExposedAreaComp(ExplicitComponent):
             P = self.interp.predict_values(self.x)
         else:
             P = self.MBI.evaluate(self.x)
+
         outputs['exposed_area'] = P.reshape(nn, self.nc, self.np, order='F')
 
     def setx(self, inputs):
@@ -218,6 +229,7 @@ class SolarExposedAreaComp(ExplicitComponent):
             Jfin = self.interp.predict_derivatives(self.x, 0).reshape(nn, self.nc, self.np, order='F')
             Jaz = self.interp.predict_derivatives(self.x, 1).reshape(nn, self.nc, self.np, order='F')
             Jel = self.interp.predict_derivatives(self.x, 2).reshape(nn, self.nc, self.np, order='F')
+
         else:
             Jfin = self.MBI.evaluate(self.x, 1).reshape(nn, self.nc, self.np, order='F')
             Jaz = self.MBI.evaluate(self.x, 2).reshape(nn, self.nc, self.np, order='F')

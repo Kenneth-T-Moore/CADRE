@@ -11,6 +11,22 @@ from openmdao.api import ExplicitComponent
 
 from MBI import MBI
 
+try:
+    from CADRE.MultiView import MultiView
+    multiview_installed = True
+except:
+    multiview_installed = False
+
+from smt.surrogate_models import RMTB, RMTC, KRG
+
+# Set to True to use Surrogate Model Toolbox instead of MBI
+USE_SMT = True
+
+#Set to True for interactive plotting of surrogate results.
+USE_MV = False
+
+multiview_installed = USE_MV & multiview_installed
+
 
 class PowerCellVoltage(ExplicitComponent):
     """
@@ -40,7 +56,64 @@ class PowerCellVoltage(ExplicitComponent):
         I = dat[3 + nT + nA:3 + nT + nA + nI]  # noqa: E741
         V = dat[3 + nT + nA + nI:].reshape((nT, nA, nI), order='F')
 
-        self.MBI = MBI(V, [T, A, I], [6, 6, 15], [3, 3, 3])
+        if USE_SMT:
+
+            temps, areas, currents = np.meshgrid(T, A, I, indexing='ij')
+
+            xt = np.array([temps.flatten(), areas.flatten(), currents.flatten()]).T
+            yt = V.flatten()
+            xlimits = np.array([
+                    [temps.min(), temps.max()],
+                    [areas.min(), areas.max()],
+                    [currents.min(), currents.max()],
+                ])
+
+            this_dir = os.path.split(__file__)[0]
+
+            # Create the _smt_cache directory if it doesn't exist
+            if not os.path.exists(os.path.join(this_dir, '_smt_cache')):
+                os.makedirs(os.path.join(this_dir, '_smt_cache'))
+
+            self.interp = interp = RMTB(
+                    xlimits=xlimits,
+                    num_ctrl_pts=8,
+                    order=4,
+                    approx_order=3,
+                    nonlinear_maxiter=2,
+                    solver_tolerance=1.e-20,
+                    energy_weight=1.e-4,
+                    regularization_weight=1.e-14,
+                    # smoothness=np.array([1., 1., 1.]),
+                    extrapolate=False,
+                    print_global=True,
+                    data_dir=os.path.join(this_dir, '_smt_cache'),
+                )
+
+            interp.set_training_values(xt, yt)
+            interp.train()
+
+            if multiview_installed:
+                info = {'nx':3,
+                        'ny':1,
+                        'user_func':interp.predict_values,
+                        'resolution':100,
+                        'plot_size':8,
+                        'dimension_names':[
+                            'Temperature',
+                            'Area',
+                            'Current'],
+                        'bounds':xlimits.tolist(),
+                        'X_dimension':0,
+                        'Y_dimension':2,
+                        'scatter_points':[xt, yt],
+                        'dist_range': 0.0,
+                        }
+
+                # Initialize display parameters and draw GUI
+                MultiView(info)
+
+        else:
+            self.MBI = MBI(V, [T, A, I], [6, 6, 15], [3, 3, 3])
 
         self.x = np.zeros((84 * nn, 3), order='F')
         self.xV = self.x.reshape((nn, 7, 12, 3), order='F')
@@ -104,11 +177,14 @@ class PowerCellVoltage(ExplicitComponent):
         nn = self.options['num_nodes']
 
         self.setx(inputs)
-        self.raw = self.MBI.evaluate(self.x)[:, 0].reshape((nn, 7, 12), order='F')
+        if USE_SMT:
+            raw = self.interp.predict_values(self.x).reshape((nn, 7, 12), order='F')
+        else:
+            raw = self.MBI.evaluate(self.x)[:, 0].reshape((nn, 7, 12), order='F')
 
         outputs['V_sol'] = np.zeros((nn, 12))
         for c in range(7):
-            outputs['V_sol'] += self.raw[:, c, :]
+            outputs['V_sol'] += raw[:, c, :]
 
     def compute_partials(self, inputs, partials):
         """
@@ -119,9 +195,15 @@ class PowerCellVoltage(ExplicitComponent):
         exposed_area = inputs['exposed_area']
         LOS = inputs['LOS']
 
-        raw1 = self.MBI.evaluate(self.x, 1)[:, 0].reshape((nn, 7, 12), order='F')
-        raw2 = self.MBI.evaluate(self.x, 2)[:, 0].reshape((nn, 7, 12), order='F')
-        raw3 = self.MBI.evaluate(self.x, 3)[:, 0].reshape((nn, 7, 12), order='F')
+        if USE_SMT:
+            raw1 = self.interp.predict_derivatives(self.x, 0).reshape(nn, 7, 12, order='F')
+            raw2 = self.interp.predict_derivatives(self.x, 1).reshape(nn, 7, 12, order='F')
+            raw3 = self.interp.predict_derivatives(self.x, 2).reshape(nn, 7, 12, order='F')
+
+        else:
+            raw1 = self.MBI.evaluate(self.x, 1)[:, 0].reshape((nn, 7, 12), order='F')
+            raw2 = self.MBI.evaluate(self.x, 2)[:, 0].reshape((nn, 7, 12), order='F')
+            raw3 = self.MBI.evaluate(self.x, 3)[:, 0].reshape((nn, 7, 12), order='F')
 
         dV_dL = np.empty((nn, 12))
         dV_dT = np.zeros((nn, 12, 5))
