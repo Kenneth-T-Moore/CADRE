@@ -42,6 +42,10 @@ class TestPower(unittest.TestCase):
 
             tval = setd[var].T
 
+            print('error', np.sqrt(np.sum((tval - prob[var])**2)))
+            import matplotlib.pyplot as plt; t=np.arange(1500); plt.plot(t, tval[:, 0]); plt.plot(t, prob['V_sol'][:, 0], 'r')
+
+
             assert(np.linalg.norm(tval - prob[var]) / np.linalg.norm(tval) < 1e-3), \
                 '%s: Expected\n%s\nbut got\n%s' % (var, str(tval), str(prob[var]))
 

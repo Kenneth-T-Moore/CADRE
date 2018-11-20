@@ -8,6 +8,8 @@ from openmdao.api import Problem, Group, IndepVarComp
 from openmdao.utils.assert_utils import assert_check_partials
 
 from CADRE.comm_dymos.comm_group import CommGroup
+from CADRE.comm_dymos.comm_gain_pattern_comp import CommGainPatternComp
+from CADRE.test.util import load_validation_data
 
 GM = 398600.44
 rmag = 7000.0
@@ -16,13 +18,37 @@ vcirc = np.sqrt(GM / rmag)
 duration = period / 1
 delta_trua = 2 * np.pi * (duration / period)
 
+#
+# load saved data from John's CMF implementation.
+#
+n, m, h, setd = load_validation_data(idx='5')
+
+
 class TestCommGroup(unittest.TestCase):
 
-    @classmethod
-    def setUpClass(cls):
+    def test_PowerCellVoltage(self):
+        prob = Problem()
+        comp = prob.model.add_subsystem('comp', CommGainPatternComp(num_nodes=1500),
+                                        promotes=['*'])
+
+        prob.setup()
+
+        prob['azimuthGS'] = setd['azimuthGS']
+        prob['elevationGS'] = setd['elevationGS']
+
+        prob.run_model()
+
+        for var in ['gain']:
+
+            tval = setd[var].T
+
+            assert(np.linalg.norm(tval - prob[var]) / np.linalg.norm(tval) < 1e-3), \
+                '%s: Expected\n%s\nbut got\n%s' % (var, str(tval), str(prob[var]))
+
+    def test_partials(self):
         nn = 10
 
-        p = cls.p = Problem(model=Group())
+        p = Problem(model=Group())
 
         ivc = p.model.add_subsystem('ivc', IndepVarComp(), promotes_outputs=['*'])
 
@@ -60,8 +86,10 @@ class TestCommGroup(unittest.TestCase):
 
         p.run_model()
 
-    def test_partials(self):
         np.set_printoptions(linewidth=100000, edgeitems=10000)
-        cpd = self.p.check_partials(method='fd', step=1.0E-6, step_calc='abs')
+        cpd = p.check_partials(method='fd', step=1.0E-6, step_calc='abs')
         assert_check_partials(cpd, atol=2.0E-5, rtol=1.0E-5)
 
+
+if __name__ == "__main__":
+    unittest.main()
