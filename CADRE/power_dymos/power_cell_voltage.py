@@ -76,13 +76,13 @@ class PowerCellVoltage(ExplicitComponent):
 
             self.interp = interp = RMTB(
                     xlimits=xlimits,
-                    num_ctrl_pts=8,
+                    num_ctrl_pts=10,
                     order=2,
                     approx_order=2,
                     nonlinear_maxiter=2,
                     solver_tolerance=1.e-20,
-                    energy_weight=1.e-4,
-                    regularization_weight=1.e-14,
+                    energy_weight=1.e-12,
+                    regularization_weight=10.,
                     # smoothness=np.array([1., 1., 1.]),
                     extrapolate=False,
                     print_global=True,
