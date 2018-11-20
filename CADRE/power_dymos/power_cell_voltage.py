@@ -77,8 +77,8 @@ class PowerCellVoltage(ExplicitComponent):
             self.interp = interp = RMTB(
                     xlimits=xlimits,
                     num_ctrl_pts=8,
-                    order=4,
-                    approx_order=3,
+                    order=2,
+                    approx_order=2,
                     nonlinear_maxiter=2,
                     solver_tolerance=1.e-20,
                     energy_weight=1.e-4,

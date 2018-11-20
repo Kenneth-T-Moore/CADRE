@@ -129,8 +129,8 @@ class SolarExposedAreaComp(ExplicitComponent):
             self.interp = interp = RMTB(
                 xlimits=xlimits,
                 num_ctrl_pts=8,
-                order=4,
-                approx_order=4,
+                order=3,
+                approx_order=3,
                 nonlinear_maxiter=2,
                 solver_tolerance=1.e-20,
                 energy_weight=1.e-4,
