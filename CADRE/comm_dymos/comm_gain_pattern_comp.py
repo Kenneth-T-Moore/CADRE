@@ -8,7 +8,10 @@ from openmdao.api import ExplicitComponent
 
 from CADRE.kinematics import fixangles
 
-from MBI import MBI
+try:
+    from MBI import MBI
+except:
+    MBI = None
 
 try:
     from CADRE.MultiView import MultiView
@@ -17,9 +20,6 @@ except:
     multiview_installed = False
 
 from smt.surrogate_models import RMTB, RMTC, KRG
-
-# Set to True to use Surrogate Model Toolbox instead of MBI
-USE_SMT = True
 
 #Set to True for interactive plotting of surrogate results.
 USE_MV = False
@@ -38,12 +38,15 @@ class CommGainPatternComp(ExplicitComponent):
 
         rawG_file = os.path.join(parent_path, 'data/Comm/Gain.txt')
 
-        self.options.declare('num_nodes', types=(int,))
+        self.options.declare('num_nodes', types=(int, ),
+                             desc="Number of time points.")
         self.options.declare('rawG_file', types=(str,), default=rawG_file)
+        self.options.declare('use_mbi', False,
+                             desc="Set to True to build surroagate models using the MBI package. (legacy)")
 
     def setup(self):
-
         nn = self.options['num_nodes']
+        use_mbi = self.options['use_mbi']
 
         rawGdata = np.genfromtxt(self.options['rawG_file'])
         rawG = (10 ** (rawGdata / 10.0)).reshape((361, 361), order='F')
@@ -52,8 +55,11 @@ class CommGainPatternComp(ExplicitComponent):
         az = np.linspace(0, 2 * pi, 361)
         el = np.linspace(0, 2 * pi, 361)
 
-        if USE_SMT:
+        if use_mbi:
+            self.MBI = MBI(rawG, [az, el], [15, 15], [4, 4])
+            self.MBI.seterr('raise')
 
+        else:
             azs, els = np.meshgrid(az, el, indexing='ij')
 
             xt = np.array([azs.flatten(), els.flatten()]).T
@@ -107,10 +113,6 @@ class CommGainPatternComp(ExplicitComponent):
                 # Initialize display parameters and draw GUI
                 MultiView(info)
 
-        else:
-            self.MBI = MBI(rawG, [az, el], [15, 15], [4, 4])
-            self.MBI.seterr('raise')
-
         self.x = np.zeros((nn, 2), order='F')
 
         # Inputs
@@ -135,21 +137,25 @@ class CommGainPatternComp(ExplicitComponent):
         """
         Calculate outputs.
         """
+        use_mbi = self.options['use_mbi']
+
         result = fixangles(self.options['num_nodes'], inputs['azimuthGS'], inputs['elevationGS'])
         self.x[:, 0] = result[0]
         self.x[:, 1] = result[1]
-        if USE_SMT:
-            outputs['gain'][:] = self.interp.predict_values(self.x).flatten()
-        else:
+        if use_mbi:
             outputs['gain'] = self.MBI.evaluate(self.x)[:, 0]
+        else:
+            outputs['gain'][:] = self.interp.predict_values(self.x).flatten()
 
     def compute_partials(self, inputs, partials):
         """
         Calculate and save derivatives. (i.e., Jacobian)
         """
-        if USE_SMT:
-            partials['gain', 'azimuthGS'] = self.interp.predict_derivatives(self.x, 0).flatten()
-            partials['gain', 'elevationGS'] = self.interp.predict_derivatives(self.x, 1).flatten()
-        else:
+        use_mbi = self.options['use_mbi']
+
+        if use_mbi:
             partials['gain', 'azimuthGS'] = self.MBI.evaluate(self.x, 1)[:, 0]
             partials['gain', 'elevationGS'] = self.MBI.evaluate(self.x, 2)[:, 0]
+        else:
+            partials['gain', 'azimuthGS'] = self.interp.predict_derivatives(self.x, 0).flatten()
+            partials['gain', 'elevationGS'] = self.interp.predict_derivatives(self.x, 1).flatten()

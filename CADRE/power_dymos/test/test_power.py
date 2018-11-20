@@ -26,7 +26,7 @@ class TestPower(unittest.TestCase):
 
     def test_PowerCellVoltage(self):
         prob = Problem()
-        comp = prob.model.add_subsystem('comp', PowerCellVoltage(num_nodes=1500),
+        comp = prob.model.add_subsystem('comp', PowerCellVoltage(num_nodes=1500, use_mbi=True),
                                         promotes=['*'])
 
         prob.setup()
@@ -41,10 +41,6 @@ class TestPower(unittest.TestCase):
         for var in ['V_sol']:
 
             tval = setd[var].T
-
-            print('error', np.sqrt(np.sum((tval - prob[var])**2)))
-            import matplotlib.pyplot as plt; t=np.arange(1500); plt.plot(t, tval[:, 0]); plt.plot(t, prob['V_sol'][:, 0], 'r')
-
 
             assert(np.linalg.norm(tval - prob[var]) / np.linalg.norm(tval) < 1e-3), \
                 '%s: Expected\n%s\nbut got\n%s' % (var, str(tval), str(prob[var]))

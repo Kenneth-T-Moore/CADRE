@@ -9,7 +9,10 @@ import numpy as np
 
 from openmdao.api import ExplicitComponent
 
-from MBI import MBI
+try:
+    from MBI import MBI
+except:
+    MBI = None
 
 try:
     from CADRE.MultiView import MultiView
@@ -18,9 +21,6 @@ except:
     multiview_installed = False
 
 from smt.surrogate_models import RMTB, RMTC, KRG
-
-# Set to True to use Surrogate Model Toolbox instead of MBI
-USE_SMT = True
 
 #Set to True for interactive plotting of surrogate results.
 USE_MV = False
@@ -40,10 +40,13 @@ class PowerCellVoltage(ExplicitComponent):
                              desc="Number of time points.")
         self.options.declare('filename', fpath + '/../data/Power/curve.dat',
                              desc="File containing surrogate model for voltage.")
+        self.options.declare('use_mbi', False,
+                             desc="Set to True to build surroagate models using the MBI package. (legacy)")
 
     def setup(self):
         nn = self.options['num_nodes']
         filename = self.options['filename']
+        use_mbi = self.options['use_mbi']
 
         dat = np.genfromtxt(filename)
 
@@ -56,8 +59,10 @@ class PowerCellVoltage(ExplicitComponent):
         I = dat[3 + nT + nA:3 + nT + nA + nI]  # noqa: E741
         V = dat[3 + nT + nA + nI:].reshape((nT, nA, nI), order='F')
 
-        if USE_SMT:
+        if use_mbi:
+            self.MBI = MBI(V, [T, A, I], [6, 6, 15], [3, 3, 3])
 
+        else:
             temps, areas, currents = np.meshgrid(T, A, I, indexing='ij')
 
             xt = np.array([temps.flatten(), areas.flatten(), currents.flatten()]).T
@@ -111,9 +116,6 @@ class PowerCellVoltage(ExplicitComponent):
 
                 # Initialize display parameters and draw GUI
                 MultiView(info)
-
-        else:
-            self.MBI = MBI(V, [T, A, I], [6, 6, 15], [3, 3, 3])
 
         self.x = np.zeros((84 * nn, 3), order='F')
         self.xV = self.x.reshape((nn, 7, 12, 3), order='F')
@@ -175,12 +177,13 @@ class PowerCellVoltage(ExplicitComponent):
         Calculate outputs.
         """
         nn = self.options['num_nodes']
+        use_mbi = self.options['use_mbi']
 
         self.setx(inputs)
-        if USE_SMT:
-            raw = self.interp.predict_values(self.x).reshape((nn, 7, 12), order='F')
-        else:
+        if use_mbi:
             raw = self.MBI.evaluate(self.x)[:, 0].reshape((nn, 7, 12), order='F')
+        else:
+            raw = self.interp.predict_values(self.x).reshape((nn, 7, 12), order='F')
 
         outputs['V_sol'] = np.zeros((nn, 12))
         for c in range(7):
@@ -191,19 +194,20 @@ class PowerCellVoltage(ExplicitComponent):
         Calculate and save derivatives. (i.e., Jacobian)
         """
         nn = self.options['num_nodes']
+        use_mbi = self.options['use_mbi']
 
         exposed_area = inputs['exposed_area']
         LOS = inputs['LOS']
 
-        if USE_SMT:
-            raw1 = self.interp.predict_derivatives(self.x, 0).reshape(nn, 7, 12, order='F')
-            raw2 = self.interp.predict_derivatives(self.x, 1).reshape(nn, 7, 12, order='F')
-            raw3 = self.interp.predict_derivatives(self.x, 2).reshape(nn, 7, 12, order='F')
-
-        else:
+        if use_mbi:
             raw1 = self.MBI.evaluate(self.x, 1)[:, 0].reshape((nn, 7, 12), order='F')
             raw2 = self.MBI.evaluate(self.x, 2)[:, 0].reshape((nn, 7, 12), order='F')
             raw3 = self.MBI.evaluate(self.x, 3)[:, 0].reshape((nn, 7, 12), order='F')
+
+        else:
+            raw1 = self.interp.predict_derivatives(self.x, 0).reshape(nn, 7, 12, order='F')
+            raw2 = self.interp.predict_derivatives(self.x, 1).reshape(nn, 7, 12, order='F')
+            raw3 = self.interp.predict_derivatives(self.x, 2).reshape(nn, 7, 12, order='F')
 
         dV_dL = np.empty((nn, 12))
         dV_dT = np.zeros((nn, 12, 5))

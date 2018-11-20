@@ -11,7 +11,10 @@ from openmdao.core.explicitcomponent import ExplicitComponent
 
 from CADRE.kinematics import fixangles
 
-from MBI import MBI
+try:
+    from MBI import MBI
+except:
+    MBI = None
 
 try:
     from CADRE.MultiView import MultiView
@@ -20,9 +23,6 @@ except:
     multiview_installed = False
 
 from smt.surrogate_models import RMTB, RMTC, KRG
-
-# Set to True to use Surrogate Model Toolbox instead of MBI
-USE_SMT = True
 
 #Set to True for interactive plotting of surrogate results.
 USE_MV = False
@@ -50,9 +50,12 @@ class SolarExposedAreaComp(ExplicitComponent):
                              desc="angle, azimuth, elevation points for exposed area interpolation.")
         self.options.declare('raw2_file', fpath + '/data/Solar/Area_all.txt',
                              desc="exposed area at points in raw1_file for exposed area interpolation.")
+        self.options.declare('use_mbi', False,
+                             desc="Set to True to build surroagate models using the MBI package. (legacy)")
 
     def setup(self):
         nn = self.options['num_nodes']
+        use_mbi = self.options['use_mbi']
         raw1_file = self.options['raw1_file']
         raw2_file = self.options['raw2_file']
 
@@ -102,8 +105,12 @@ class SolarExposedAreaComp(ExplicitComponent):
                                                                    self.ne))
                 counter += 1
 
-        if USE_SMT:
+        if use_mbi:
+            self.MBI = MBI(data, [angle, azimuth, elevation],
+                                 [4, 10, 8],
+                                 [4, 4, 4])
 
+        else:
             angles, azimuths, elevations = np.meshgrid(angle, azimuth, elevation, indexing='ij')
 
             xt = np.array([angles.flatten(), azimuths.flatten(), elevations.flatten()]).T
@@ -164,11 +171,6 @@ class SolarExposedAreaComp(ExplicitComponent):
                 # Initialize display parameters and draw GUI
                 MultiView(info)
 
-        else:
-            self.MBI = MBI(data, [angle, azimuth, elevation],
-                                 [4, 10, 8],
-                                 [4, 4, 4])
-
         self.x = np.zeros((nn, 3))
 
         # Inputs
@@ -198,13 +200,14 @@ class SolarExposedAreaComp(ExplicitComponent):
         """
         Calculate outputs.
         """
+        use_mbi = self.options['use_mbi']
         nn = self.options['num_nodes']
 
         self.setx(inputs)
-        if USE_SMT:
-            P = self.interp.predict_values(self.x)
-        else:
+        if use_mbi:
             P = self.MBI.evaluate(self.x)
+        else:
+            P = self.interp.predict_values(self.x)
 
         outputs['exposed_area'] = P.reshape(nn, self.nc, self.np, order='F')
 
@@ -223,17 +226,18 @@ class SolarExposedAreaComp(ExplicitComponent):
         """
         Calculate and save derivatives. (i.e., Jacobian)
         """
+        use_mbi = self.options['use_mbi']
         nn = self.options['num_nodes']
 
-        if USE_SMT:
-            Jfin = self.interp.predict_derivatives(self.x, 0).reshape(nn, self.nc, self.np, order='F')
-            Jaz = self.interp.predict_derivatives(self.x, 1).reshape(nn, self.nc, self.np, order='F')
-            Jel = self.interp.predict_derivatives(self.x, 2).reshape(nn, self.nc, self.np, order='F')
-
-        else:
+        if use_mbi:
             Jfin = self.MBI.evaluate(self.x, 1).reshape(nn, self.nc, self.np, order='F')
             Jaz = self.MBI.evaluate(self.x, 2).reshape(nn, self.nc, self.np, order='F')
             Jel = self.MBI.evaluate(self.x, 3).reshape(nn, self.nc, self.np, order='F')
+
+        else:
+            Jfin = self.interp.predict_derivatives(self.x, 0).reshape(nn, self.nc, self.np, order='F')
+            Jaz = self.interp.predict_derivatives(self.x, 1).reshape(nn, self.nc, self.np, order='F')
+            Jel = self.interp.predict_derivatives(self.x, 2).reshape(nn, self.nc, self.np, order='F')
 
         partials['exposed_area', 'fin_angle'] = Jfin.flatten()
         partials['exposed_area', 'azimuth'] = Jaz.flatten()

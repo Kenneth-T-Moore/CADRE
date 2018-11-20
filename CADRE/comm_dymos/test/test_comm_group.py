@@ -28,7 +28,7 @@ class TestCommGroup(unittest.TestCase):
 
     def test_PowerCellVoltage(self):
         prob = Problem()
-        comp = prob.model.add_subsystem('comp', CommGainPatternComp(num_nodes=1500),
+        comp = prob.model.add_subsystem('comp', CommGainPatternComp(num_nodes=1500, use_mbi=True),
                                         promotes=['*'])
 
         prob.setup()

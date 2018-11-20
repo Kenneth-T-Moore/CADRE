@@ -22,7 +22,7 @@ class TestSolar(unittest.TestCase):
 
     def test_SunLOSComp(self):
         prob = Problem()
-        comp = prob.model.add_subsystem('comp', SolarExposedAreaComp(num_nodes=1500),
+        comp = prob.model.add_subsystem('comp', SolarExposedAreaComp(num_nodes=1500, use_mbi=True),
                                         promotes=['*'])
 
         prob.setup()
@@ -42,7 +42,7 @@ class TestSolar(unittest.TestCase):
 
     def test_SunLOSComp_derivs(self):
         prob = Problem()
-        comp = prob.model.add_subsystem('comp', SolarExposedAreaComp(num_nodes=5),
+        comp = prob.model.add_subsystem('comp', SolarExposedAreaComp(num_nodes=5, use_mbi=True),
                                         promotes=['*'])
 
         prob.setup()
