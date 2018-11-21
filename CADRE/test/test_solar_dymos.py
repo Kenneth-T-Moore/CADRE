@@ -37,6 +37,9 @@ class TestSolar(unittest.TestCase):
 
             tval = np.transpose(setd['exposedArea'], [2, 0, 1])
 
+            #print('error', np.sqrt(np.sum((tval-prob[var])**2)))
+            #import matplotlib.pyplot as plt; t = np.arange(1500); plt.plot(t, tval[:, 0, 0]); plt.plot(t, prob[var][:, 0, 0])
+
             assert(np.linalg.norm(tval - prob[var]) / np.linalg.norm(tval) < 1e-3), \
                 '%s: Expected\n%s\nbut got\n%s' % (var, str(tval), str(prob[var]))
 

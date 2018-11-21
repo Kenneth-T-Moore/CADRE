@@ -87,7 +87,7 @@ class PowerCellVoltage(ExplicitComponent):
                     nonlinear_maxiter=2,
                     solver_tolerance=1.e-20,
                     energy_weight=1.e-13,
-                    regularization_weight=2.5,
+                    regularization_weight=2.3,
                     # smoothness=np.array([1., 1., 1.]),
                     extrapolate=False,
                     print_global=True,
